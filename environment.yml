@@ -1,0 +1,11 @@
+name: epos4_controller
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - cmake
+  - make
+  - pkg-config
+  - cxx-compiler
+  - sysroot_linux-64 
+  - soem
