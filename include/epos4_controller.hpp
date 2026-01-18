@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <soem/soem.h>
@@ -74,9 +75,13 @@ private:
   std::vector<std::unique_ptr<SharedMotorData>> motor_data_list;
 
   void worker_loop();
-  void configure_slave(int slave_index);
+  void configure_slaves_in_network(ecx_contextt& ethercat_context);
+  int set_operational_state(ecx_contextt& ethercat_context);
+  void set_motor_shared_data(ecx_contextt& ethercat_context, int slave_index);
+  void set_slave_default_values(int slave_index);
   void configure_pdo(int slave_index);
-
+  void state_machine(SharedMotorData& motor, uint16_t status);
+  void start_movement(SharedMotorData& motor, uint16_t status);
   template <typename DataType>
   bool send_sdo_write(uint16_t slave_index, uint16_t index, uint8_t sub_index,
                       DataType value);
