@@ -38,15 +38,15 @@ constexpr uint32_t MAP_OBJ_ERROR_CODE = 0x603F0010;  // 16-bit
 // PDO Structures
 #pragma pack(push, 1)
 struct PdoOutput {
-  uint16_t control_word;
-  int8_t operation_mode;
-  int32_t target_position;
+    uint16_t control_word;
+    int8_t operation_mode;
+    int32_t target_position;
 };
 
 struct PdoInput {
-  uint16_t status_word;
-  int8_t mode_display;
-  int32_t actual_position;
-  uint16_t error_code;
+    uint16_t status_word;
+    int8_t mode_display;
+    int32_t actual_position;
+    uint16_t error_code;
 };
 #pragma pack(pop)

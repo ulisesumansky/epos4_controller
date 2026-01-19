@@ -5,7 +5,7 @@ channels:
 dependencies:
   - cmake
   - make
-  - pkg-config
   - cxx-compiler
-  - sysroot_linux-64 
+  - sysroot_linux-64
   - soem
+  - clang-tools

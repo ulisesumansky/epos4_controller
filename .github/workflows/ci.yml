@@ -1,0 +1,36 @@
+name: C++ CI (Conda)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build-conda:
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        shell: bash -l {0}
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: conda-incubator/setup-miniconda@v3
+      with:
+        activate-environment: epos4_controller
+        environment-file: environment.yml
+        auto-activate-base: false
+        use-only-tar-bz2: true 
+
+    - name: Check Formatting
+      run: |
+        find src include -name "*.cpp" -o -name "*.hpp" | xargs clang-format --dry-run --Werror -i
+
+    - name: Build with CMake
+      run: |
+        conda env create -f environment.yml
+        conda activate epos4_controller
+        cmake -S . -B build -DCMAKE_PREFIX_PATH=$CONDA_PREFIX
+        cmake --build build
