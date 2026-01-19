@@ -1,11 +1,7 @@
 #include "epos4_controller.hpp"
 #include <chrono>
-#include <cstdint>
 #include <iostream>
-#include <memory>
 #include <stdexcept>
-#include <sys/types.h>
-#include <unistd.h>
 
 using namespace EposConsts;
 
@@ -35,6 +31,8 @@ Epos4Controller::Epos4Controller(const std::string &network_interface_name) {
     is_driver_running = true;
     worker = std::thread(&Epos4Controller::worker_loop, this);
     std::cout << "[EposDriver] System Running." << std::endl;
+  } else {
+    throw std::runtime_error("Could not switch to Operational State.");
   }
 }
 
@@ -57,67 +55,72 @@ bool Epos4Controller::send_sdo_write(uint16_t slave_index, uint16_t index,
 }
 
 void Epos4Controller::configure_pdo(int slave_index) {
-  // Map RxPDO (Outputs)
-  send_sdo_write(slave_index, 0x1600, 0x00, (uint8_t)0);
-  send_sdo_write(slave_index, 0x1600, 0x01,
-                 (uint32_t)0x60400010); // ControlWord
-  send_sdo_write(slave_index, 0x1600, 0x02, (uint32_t)0x60600008); // OpMode
-  send_sdo_write(slave_index, 0x1600, 0x03, (uint32_t)0x607A0020); // TargetPos
-  send_sdo_write(slave_index, 0x1600, 0x00, (uint8_t)3);
+  // Map RxPDO (Outputs: Master -> Slave)
+  // Clear Mapping (Subindex 0 = 0)
+  send_sdo_write(slave_index, RX_PDO_MAP_INDEX, 0x00, (uint8_t)0);
 
-  // Map TxPDO (Inputs)
-  send_sdo_write(slave_index, 0x1A00, 0x00, (uint8_t)0);
-  send_sdo_write(slave_index, 0x1A00, 0x01, (uint32_t)0x60410010); // StatusWord
-  send_sdo_write(slave_index, 0x1A00, 0x02, (uint32_t)0x60610008); // ModeDisp
-  send_sdo_write(slave_index, 0x1A00, 0x03, (uint32_t)0x60640020); // ActualPos
-  send_sdo_write(slave_index, 0x1A00, 0x04, (uint32_t)0x603F0010); // ErrorCode
-  send_sdo_write(slave_index, 0x1A00, 0x00, (uint8_t)4);
+  // Map Objects
+  send_sdo_write(slave_index, RX_PDO_MAP_INDEX, 0x01, MAP_OBJ_CONTROL_WORD);
+  send_sdo_write(slave_index, RX_PDO_MAP_INDEX, 0x02, MAP_OBJ_OP_MODE);
+  send_sdo_write(slave_index, RX_PDO_MAP_INDEX, 0x03, MAP_OBJ_TARGET_POS);
+
+  //  Enable Mapping (Subindex 0 = Number of mapped objects)
+  send_sdo_write(slave_index, RX_PDO_MAP_INDEX, 0x00, (uint8_t)3);
+
+  // Map TxPDO (Inputs: Slave -> Master)
+  // Clear Mapping
+  send_sdo_write(slave_index, TX_PDO_MAP_INDEX, 0x00, (uint8_t)0);
+
+  // Map Objects
+  send_sdo_write(slave_index, TX_PDO_MAP_INDEX, 0x01, MAP_OBJ_STATUS_WORD);
+  send_sdo_write(slave_index, TX_PDO_MAP_INDEX, 0x02, MAP_OBJ_MODE_DISP);
+  send_sdo_write(slave_index, TX_PDO_MAP_INDEX, 0x03, MAP_OBJ_ACTUAL_POS);
+  send_sdo_write(slave_index, TX_PDO_MAP_INDEX, 0x04, MAP_OBJ_ERROR_CODE);
+
+  // Enable Mapping
+  send_sdo_write(slave_index, TX_PDO_MAP_INDEX, 0x00, (uint8_t)4);
 }
 
-int Epos4Controller::set_operational_state(ecx_contextt &ethercat_context) {
+int Epos4Controller::set_operational_state(ecx_contextt &ec_ctx) {
   std::cout << "[EposDriver] Switching to OPERATIONAL..." << std::endl;
-  ethercat_context.slavelist[0].state = EC_STATE_OPERATIONAL;
-  ecx_writestate(&ethercat_context, 0);
+  ec_ctx.slavelist[0].state = EC_STATE_OPERATIONAL;
+  ecx_writestate(&ec_ctx, 0);
 
   int chk = 200;
   do {
-    ecx_send_processdata(&ethercat_context);
-    ecx_receive_processdata(&ethercat_context, EC_TIMEOUTRET);
-    ecx_statecheck(&ethercat_context, 0, EC_STATE_OPERATIONAL, 50000);
-  } while (chk-- &&
-           (ethercat_context.slavelist[0].state != EC_STATE_OPERATIONAL));
+    ecx_send_processdata(&ec_ctx);
+    ecx_receive_processdata(&ec_ctx, EC_TIMEOUTRET);
+    ecx_statecheck(&ec_ctx, 0, EC_STATE_OPERATIONAL, 50000);
+  } while (chk-- && (ec_ctx.slavelist[0].state != EC_STATE_OPERATIONAL));
 
-  if (ethercat_context.slavelist[0].state != EC_STATE_OPERATIONAL) {
+  if (ec_ctx.slavelist[0].state != EC_STATE_OPERATIONAL) {
     return -1;
   }
   return 0;
 }
 
-void Epos4Controller::set_motor_shared_data(ecx_contextt &ethercat_context,
+void Epos4Controller::set_motor_shared_data(ecx_contextt &ec_ctx,
                                             int slave_index) {
   auto data = std::make_unique<SharedMotorData>();
-  data->pdo_output =
-      (PdoOutput *)ethercat_context.slavelist[slave_index].outputs;
-  data->pdo_input = (PdoInput *)ethercat_context.slavelist[slave_index].inputs;
+  data->pdo_output = (PdoOutput *)ec_ctx.slavelist[slave_index].outputs;
+  data->pdo_input = (PdoInput *)ec_ctx.slavelist[slave_index].inputs;
   motor_data_list.push_back(std::move(data));
 }
 
-void Epos4Controller::configure_slaves_in_network(
-    ecx_contextt &ethercat_context) {
-  connected_slave_count = ethercat_context.slavecount;
+void Epos4Controller::configure_slaves_in_network(ecx_contextt &ec_ctx) {
+  connected_slave_count = ec_ctx.slavecount;
   std::cout << "[EposDriver] Found " << connected_slave_count << " slaves."
             << std::endl;
 
-  // Configure Slaves in Pre-Op
   for (int slave_index = 1; slave_index <= connected_slave_count;
        slave_index++) {
-    ethercat_context.slavelist[slave_index].state = EC_STATE_PRE_OP;
-    ecx_writestate(&ethercat_context, slave_index);
+    ec_ctx.slavelist[slave_index].state = EC_STATE_PRE_OP;
+    ecx_writestate(&ec_ctx, slave_index);
 
     int retries = 0;
     while (retries++ < 100 &&
-           ethercat_context.slavelist[slave_index].state != EC_STATE_PRE_OP) {
-      ecx_statecheck(&ethercat_context, slave_index, EC_STATE_PRE_OP, 20000);
+           ec_ctx.slavelist[slave_index].state != EC_STATE_PRE_OP) {
+      ecx_statecheck(&ec_ctx, slave_index, EC_STATE_PRE_OP, 20000);
     }
     set_slave_default_values(slave_index);
   }
@@ -150,7 +153,7 @@ void Epos4Controller::start_movement(SharedMotorData &motor, uint16_t status) {
       // 0x003F = Enable + New Setpoint + Change Immediately
       motor.pdo_output->control_word = 0x003F;
     } else if (status & 0x1000) {
-      // Handshake Acknowledged
+      // Handshake Acknowledged: return to normal Enable
       motor.pdo_output->control_word = 0x000F;
     }
   }
@@ -158,7 +161,6 @@ void Epos4Controller::start_movement(SharedMotorData &motor, uint16_t status) {
 
 void Epos4Controller::worker_loop() {
   while (is_driver_running) {
-    // AGREGADO: Try-catch interno para proteger el hilo
     try {
       auto start_time = std::chrono::steady_clock::now();
 
@@ -173,14 +175,13 @@ void Epos4Controller::worker_loop() {
         for (int i = 0; i < connected_slave_count; i++) {
           auto &motor = *motor_data_list[i];
 
-          // Read PDO real position
+          // Read PDO
           motor.position = motor.pdo_input->actual_position;
-
           uint16_t status = motor.pdo_input->status_word;
+
+          // Logic
           state_machine(motor, status);
-
           motor.pdo_output->operation_mode = MODE_PROFILE_POSITION;
-
           start_movement(motor, status);
         }
       }
@@ -192,15 +193,15 @@ void Epos4Controller::worker_loop() {
   }
 }
 
-// --- Public API Implementation ---
+// --- Public API ---
 
 void Epos4Controller::set_target_position(int motor_id,
                                           int32_t position_value) {
   if (motor_id < 1 || motor_id > connected_slave_count)
     return;
-  auto &m = *motor_data_list[motor_id - 1];
-  m.new_target_position = position_value;
-  m.has_new_command = true;
+  auto &motor = *motor_data_list[motor_id - 1];
+  motor.new_target_position = position_value;
+  motor.has_new_command = true;
 }
 
 int32_t Epos4Controller::get_current_position(int motor_id) {
