@@ -6,6 +6,8 @@
 
 void wait_until_reached(Epos4Controller &driver, int motor_id, int32_t target_pos) {
     while (std::abs(target_pos - driver.get_current_position(motor_id)) > 100) {
+        std::cout << "Motor " << "[" << motor_id
+                  << "] position: " << driver.get_current_position(motor_id) << std::endl;
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }

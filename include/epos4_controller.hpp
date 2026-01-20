@@ -36,7 +36,7 @@ class Epos4Controller {
 
   private:
     ecx_contextt ethercat_context;
-    char io_map_buffer[4096];
+    char io_map_buffer[40960];
     int connected_slave_count;
 
     std::thread worker;
