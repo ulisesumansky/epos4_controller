@@ -37,6 +37,20 @@ target_link_libraries(Epos4Controller PUBLIC
     Threads::Threads
 )
 
+add_executable(simple_motion examples/simple_motion.cpp src/epos4_controller.cpp)
+
+target_link_libraries(simple_motion 
+    PRIVATE 
+    ${SOEM_LIBRARY} 
+    Threads::Threads
+)
+
+target_include_directories(simple_motion 
+    PRIVATE 
+    include 
+    ${SOEM_INCLUDE_DIR}
+)
+
 install(TARGETS Epos4Controller
     EXPORT Epos4ControllerTargets
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
