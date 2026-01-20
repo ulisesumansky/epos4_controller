@@ -1,7 +1,6 @@
 #include "epos4_controller.hpp"
 #include <chrono>
 #include <iostream>
-#include <stdexcept>
 
 using namespace EposConsts;
 

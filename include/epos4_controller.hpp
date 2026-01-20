@@ -9,6 +9,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <stdexcept>
 
 class Epos4Controller {
   public:
