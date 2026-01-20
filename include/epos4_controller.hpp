@@ -55,14 +55,14 @@ class Epos4Controller {
     std::vector<std::unique_ptr<SharedMotorData>> motor_data_list;
 
     void _worker_loop();
-    void _configure_slaves_in_network(ecx_contextt &ec_ctx);
-    int _set_operational_state(ecx_contextt &ec_ctx);
-    void _set_motor_shared_data(ecx_contextt &ec_ctx, int slave_index);
+    void _configure_slaves_in_network();
+    int _set_operational_state();
+    void _set_motor_shared_data(int slave_index);
     void _set_slave_default_values(int slave_index);
     void _configure_pdo(int slave_index);
     void _state_machine(SharedMotorData &motor, uint16_t status);
     void _start_movement(SharedMotorData &motor, uint16_t status);
-
+    void _wait_for_motors_enabled();
     template <typename DataType>
     bool _sdo_write(uint16_t slave_index, uint16_t index, uint8_t sub_index, DataType value) {
         int wkc = ecx_SDOwrite(&ethercat_context, slave_index, index, sub_index, FALSE,

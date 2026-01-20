@@ -16,17 +16,18 @@ Epos4Controller::Epos4Controller(const std::string &network_interface_name) {
         throw std::runtime_error("No slaves found on bus.");
     }
 
-    _configure_slaves_in_network(ethercat_context);
+    _configure_slaves_in_network();
     ecx_config_map_group(&ethercat_context, io_map_buffer, 0);
     ecx_configdc(&ethercat_context);
 
     for (int slave_index = 1; slave_index <= connected_slave_count; slave_index++) {
-        _set_motor_shared_data(ethercat_context, slave_index);
-    }
+        _set_motor_shared_data(slave_index);
+  }
 
-    if (!_set_operational_state(ethercat_context)) {
+    if (!_set_operational_state()) {
         is_driver_running = true;
         worker = std::thread(&Epos4Controller::_worker_loop, this);
+        _wait_for_motors_enabled();
         std::cout << "[EposDriver] System Running." << std::endl;
     } else {
         throw std::runtime_error("Could not switch to Operational State.");
@@ -69,42 +70,42 @@ void Epos4Controller::_configure_pdo(int slave_index) {
     _sdo_write(slave_index, TX_PDO_MAP_INDEX, 0x00, (uint8_t)4);
 }
 
-int Epos4Controller::_set_operational_state(ecx_contextt &ec_ctx) {
+int Epos4Controller::_set_operational_state() {
     std::cout << "[EposDriver] Switching to OPERATIONAL..." << std::endl;
-    ec_ctx.slavelist[0].state = EC_STATE_OPERATIONAL;
-    ecx_writestate(&ec_ctx, 0);
+    ethercat_context.slavelist[0].state = EC_STATE_OPERATIONAL;
+    ecx_writestate(&ethercat_context, 0);
 
     int chk = 200;
     do {
-        ecx_send_processdata(&ec_ctx);
-        ecx_receive_processdata(&ec_ctx, EC_TIMEOUTRET);
-        ecx_statecheck(&ec_ctx, 0, EC_STATE_OPERATIONAL, 50000);
-    } while (chk-- && (ec_ctx.slavelist[0].state != EC_STATE_OPERATIONAL));
+        ecx_send_processdata(&ethercat_context);
+        ecx_receive_processdata(&ethercat_context, EC_TIMEOUTRET);
+        ecx_statecheck(&ethercat_context, 0, EC_STATE_OPERATIONAL, 50000);
+    } while (chk-- && (ethercat_context.slavelist[0].state != EC_STATE_OPERATIONAL));
 
-    if (ec_ctx.slavelist[0].state != EC_STATE_OPERATIONAL) {
+    if (ethercat_context.slavelist[0].state != EC_STATE_OPERATIONAL) {
         return -1;
     }
     return 0;
 }
 
-void Epos4Controller::_set_motor_shared_data(ecx_contextt &ec_ctx, int slave_index) {
+void Epos4Controller::_set_motor_shared_data(int slave_index) {
     auto data = std::make_unique<SharedMotorData>();
-    data->pdo_output = (PdoOutput *)ec_ctx.slavelist[slave_index].outputs;
-    data->pdo_input = (PdoInput *)ec_ctx.slavelist[slave_index].inputs;
+    data->pdo_output = (PdoOutput *)ethercat_context.slavelist[slave_index].outputs;
+    data->pdo_input = (PdoInput *)ethercat_context.slavelist[slave_index].inputs;
     motor_data_list.push_back(std::move(data));
 }
 
-void Epos4Controller::_configure_slaves_in_network(ecx_contextt &ec_ctx) {
-    connected_slave_count = ec_ctx.slavecount;
+void Epos4Controller::_configure_slaves_in_network() {
+    connected_slave_count = ethercat_context.slavecount;
     std::cout << "[EposDriver] Found " << connected_slave_count << " slaves." << std::endl;
 
     for (int slave_index = 1; slave_index <= connected_slave_count; slave_index++) {
-        ec_ctx.slavelist[slave_index].state = EC_STATE_PRE_OP;
-        ecx_writestate(&ec_ctx, slave_index);
+        ethercat_context.slavelist[slave_index].state = EC_STATE_PRE_OP;
+        ecx_writestate(&ethercat_context, slave_index);
 
         int retries = 0;
-        while (retries++ < 100 && ec_ctx.slavelist[slave_index].state != EC_STATE_PRE_OP) {
-            ecx_statecheck(&ec_ctx, slave_index, EC_STATE_PRE_OP, 20000);
+        while (retries++ < 100 && ethercat_context.slavelist[slave_index].state != EC_STATE_PRE_OP) {
+            ecx_statecheck(&ethercat_context, slave_index, EC_STATE_PRE_OP, 20000);
         }
         _set_slave_default_values(slave_index);
     }
@@ -141,6 +142,36 @@ void Epos4Controller::_start_movement(SharedMotorData &motor, uint16_t status) {
             motor.pdo_output->control_word = 0x000F;
         }
     }
+}
+
+void Epos4Controller::_wait_for_motors_enabled() {
+    std::cout << "[EposDriver] Waiting for motors to reach Operation Enabled..." << std::endl;
+
+    auto start_time = std::chrono::steady_clock::now();
+    bool all_ready = false;
+
+    while (std::chrono::steady_clock::now() - start_time < std::chrono::seconds(5)) {
+        all_ready = true;
+
+        for (int i = 0; i < connected_slave_count; i++) {
+            uint16_t status = motor_data_list[i]->pdo_input->status_word;
+
+            if ((status & 0x006F) != 0x0027) {
+                all_ready = false;
+                break;
+            }
+        }
+
+        if (all_ready) {
+            return;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    is_driver_running = false;
+    if (worker.joinable())
+        worker.join();
+    throw std::runtime_error("Timeout: Motors failed to enable within 5 seconds.");
 }
 
 void Epos4Controller::_worker_loop() {
