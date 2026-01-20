@@ -4,8 +4,11 @@ channels:
   - defaults
 dependencies:
   - cmake
+  - gxx_linux-64 >=14.3.0
+  - gcc_linux-64 >=14.3.0
+  - sysroot_linux-64 >=2.28
   - make
   - cxx-compiler
   - sysroot_linux-64
-  - soem
+  - soem >= 2.0.0
   - clang-tools
